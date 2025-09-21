@@ -8,6 +8,7 @@
         pre { background-color: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; }
         .additions { color: green; font-weight: bold; }
         .deletions { color: red; font-weight: bold; }
+        .issue { color: #b22222; }
         .score-bar { height: 25px; font-weight: bold; }
     </style>
 </head>
@@ -37,18 +38,20 @@
                 {% if file.issues %}
                     <ul>
                         {% for issue in file.issues %}
-                        <li>{{ issue.type }} — {{ issue.detail }}</li>
+                        <li class="issue"><strong>{{ issue.type }}</strong>: {{ issue.detail }}</li>
                         {% endfor %}
                     </ul>
                 {% else %}
                     <p>No issues found.</p>
                 {% endif %}
+                {% if file.patch %}
                 <button class="btn btn-sm btn-outline-primary mt-2" type="button" data-bs-toggle="collapse" data-bs-target="#patch{{ loop.index }}" aria-expanded="false" aria-controls="patch{{ loop.index }}">
                     Show Patch
                 </button>
                 <div class="collapse mt-2" id="patch{{ loop.index }}">
                     <pre>{{ file.patch }}</pre>
                 </div>
+                {% endif %}
             </div>
         </div>
         {% endfor %}
@@ -56,6 +59,7 @@
 
     <a href="/" class="btn btn-secondary mt-3">Analyze another PR</a>
 </div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
