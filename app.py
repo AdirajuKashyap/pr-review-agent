@@ -1,33 +1,32 @@
-from flask import Flask, request, render_template, jsonify
+from flask import Flask, request, render_template
 from pr_fetcher import fetch_github_pr
-from github import GithubException
-import os
+from analyzer import analyze_pr
 
 app = Flask(__name__)
 
-# Home page
 @app.route("/")
 def index():
+    # Show the form to enter PR URL
     return render_template("index.html")
 
-# Review PR endpoint
 @app.route("/review", methods=["POST"])
 def review():
-    pr_url = request.form.get("pr_url")
+    pr_url = request.form.get("pr_url", "").strip()
     if not pr_url:
-        return jsonify({"error": "PR URL is required"}), 400
+        return "PR URL is required", 400
 
     try:
+        # Fetch PR data from GitHub
         pr_data = fetch_github_pr(pr_url)
-        return jsonify(pr_data)
-    except ValueError as ve:
-        return jsonify({"error": str(ve)}), 400
-    except GithubException.UnknownObjectException:
-        return jsonify({"error": "PR not found or repository is private"}), 404
-    except Exception as e:
-        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
-# Run with gunicorn on Render
+        # Analyze the PR using analyzer.py
+        analysis = analyze_pr(pr_data)
+
+        # Render the results using result.html
+        return render_template("result.html", pr_data=pr_data, analysis=analysis)
+
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=10000, debug=True)
