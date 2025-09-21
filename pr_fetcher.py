@@ -1,16 +1,21 @@
+from flask import Flask, request, render_template, jsonify
 from github import Github
 import os
 import re
 
+app = Flask(__name__)
+
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", None)
 
+# -----------------------------
+# GitHub PR Fetcher
+# -----------------------------
 def fetch_github_pr(pr_url: str):
-    """
-    Fetches a GitHub PR by URL and returns repo info + file diffs + score.
-    """
-    m = re.search(r'github\.com/([^/]+/[^/]+)/pull/(\d+)', pr_url)
+    """Fetch a GitHub PR by URL and return PR info."""
+    pattern = r'https://github\.com/([^/]+/[^/]+)/pull/(\d+)'
+    m = re.match(pattern, pr_url)
     if not m:
-        raise ValueError("Not a valid GitHub PR URL")
+        raise ValueError("Invalid GitHub PR URL. Use https://github.com/owner/repo/pull/123")
     
     repo_name, pr_number = m.group(1), int(m.group(2))
     gh = Github(GITHUB_TOKEN) if GITHUB_TOKEN else Github()
@@ -32,11 +37,10 @@ def fetch_github_pr(pr_url: str):
         total_additions += f.additions
         total_deletions += f.deletions
 
-    # Simple scoring: higher score for fewer changes (arbitrary)
     score = max(0, 100 - (total_additions + total_deletions))
 
     return {
-        "repo_name": repo_name,   # template expects repo_name
+        "repo_name": repo_name,
         "pr_number": pr_number,
         "title": pr.title,
         "body": pr.body,
@@ -44,10 +48,11 @@ def fetch_github_pr(pr_url: str):
         "score": score
     }
 
+# -----------------------------
+# Local Diff Parser
+# -----------------------------
 def parse_local_diff(diff_text: str):
-    """
-    Parse a unified diff text into PR-like data format.
-    """
+    """Parse a unified diff text into PR-like data format."""
     files = []
     current_file = None
     current_patch_lines = []
@@ -88,3 +93,38 @@ def parse_local_diff(diff_text: str):
         "files": files,
         "score": score
     }
+
+# -----------------------------
+# Flask Routes
+# -----------------------------
+@app.route('/')
+def index():
+    return render_template('index.html')  # create a simple form in index.html
+
+@app.route('/review', methods=['POST'])
+def review():
+    try:
+        # Handle GitHub PR URL
+        pr_url = request.form.get('pr_url', '').strip()
+        diff_file = request.files.get('diff_file')
+
+        if pr_url:
+            pr_data = fetch_github_pr(pr_url)
+        elif diff_file:
+            diff_text = diff_file.read().decode('utf-8')
+            pr_data = parse_local_diff(diff_text)
+        else:
+            return jsonify({"error": "No PR URL or diff file provided"}), 400
+
+        return jsonify(pr_data)
+
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+
+# -----------------------------
+# Run App
+# -----------------------------
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=10000, debug=True)
