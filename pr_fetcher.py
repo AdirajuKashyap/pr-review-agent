@@ -1,5 +1,5 @@
 from flask import Flask, request, render_template, jsonify
-from github import Github
+from github import Github, GithubException
 import os
 import re
 
@@ -99,12 +99,11 @@ def parse_local_diff(diff_text: str):
 # -----------------------------
 @app.route('/')
 def index():
-    return render_template('index.html')  # create a simple form in index.html
+    return render_template('index.html')  # make sure this exists in templates/
 
 @app.route('/review', methods=['POST'])
 def review():
     try:
-        # Handle GitHub PR URL
         pr_url = request.form.get('pr_url', '').strip()
         diff_file = request.files.get('diff_file')
 
@@ -120,6 +119,8 @@ def review():
 
     except ValueError as ve:
         return jsonify({"error": str(ve)}), 400
+    except GithubException.UnknownObjectException:
+        return jsonify({"error": "PR not found or repository is private"}), 404
     except Exception as e:
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
@@ -127,4 +128,5 @@ def review():
 # Run App
 # -----------------------------
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000, debug=True)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port, debug=False)
