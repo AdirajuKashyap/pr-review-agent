@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request
 from pr_fetcher import fetch_github_pr  # your existing PR fetcher
+import os
 
 app = Flask(__name__)
 
@@ -15,8 +16,11 @@ def review():
     except ValueError:
         return "Invalid GitHub PR URL. Use https://github.com/owner/repo/pull/123"
     
-    # Debug: print(pr_data.files)
+    if not pr_data['files']:
+        return "No files found in this PR."
+
     return render_template('result.html', pr_data=pr_data)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=8000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=True, host="0.0.0.0", port=port)
