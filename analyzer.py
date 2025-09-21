@@ -1,15 +1,14 @@
 """
 Analyzer module for PR Review Agent.
 
-It inspects added code in pull requests and reports issues such as
+Inspects added code in pull requests and reports issues such as
 TODOs, cyclomatic complexity, missing docstrings, print-based logging,
-Pyflakes warnings, and possible secrets.
+Pyflakes warnings, large additions, and possible secrets.
 """
 
 from __future__ import annotations
 
 import ast
-import json
 import logging
 import re
 import shutil
@@ -19,11 +18,15 @@ from typing import Any, Dict, List, Optional
 
 from radon.complexity import cc_visit
 
-# configure a module logger
+# ---------------------------
+# Logger
+# ---------------------------
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# penalty constants
+# ---------------------------
+# Penalty constants
+# ---------------------------
 PENALTY_TODO = 5
 PENALTY_COMPLEXITY = 2
 PENALTY_DOCSTRING = 1
@@ -38,7 +41,12 @@ MAX_PENALTY_PER_ISSUE = {
     "large_addition": 5,
 }
 
+SECRET_KEYWORDS = ["PRIVATE_KEY", "API_KEY", "SECRET", "TOKEN"]
 
+
+# ---------------------------
+# Helpers
+# ---------------------------
 def extract_added_code(patch_text: str) -> str:
     """Return concatenated added lines (prefixed by '+') from a git patch."""
     added_lines: List[str] = [
@@ -51,19 +59,13 @@ def extract_added_code(patch_text: str) -> str:
 
 def count_todos(patch_text: str) -> int:
     """Count TODO/FIXME markers in a patch."""
-    return sum(
-        1
-        for l in patch_text.splitlines()
-        if "TODO" in l or "FIXME" in l
-    )
+    return sum(1 for l in patch_text.splitlines() if "TODO" in l or "FIXME" in l)
 
 
-def python_complexity_from_code(
-    code_text: str,
-) -> Optional[Dict[str, Any]]:
+def python_complexity_from_code(code_text: str) -> Optional[Dict[str, Any]]:
     """
-    Use radon to compute average cyclomatic complexity of functions in code_text.
-    If code_text is not valid python, return None.
+    Compute cyclomatic complexity using radon.
+    Returns dict with average, high count, and details. None if invalid code.
     """
     try:
         blocks = cc_visit(code_text)
@@ -74,9 +76,7 @@ def python_complexity_from_code(
         return {
             "avg": avg,
             "high_count": len(high),
-            "details": [
-                {"name": b.name, "complexity": b.complexity} for b in blocks
-            ],
+            "details": [{"name": b.name, "complexity": b.complexity} for b in blocks],
         }
     except Exception as exc:
         logger.debug("Complexity analysis failed: %s", exc)
@@ -89,14 +89,12 @@ def uses_print_for_logging(code_text: str) -> bool:
 
 
 def missing_docstrings(code_text: str) -> Optional[int]:
-    """Count functions/classes without docstrings; return None if parse fails."""
+    """Count functions/classes without docstrings; None if parse fails."""
     try:
         tree = ast.parse(code_text)
         missing = 0
         for node in ast.walk(tree):
-            if isinstance(
-                node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-            ):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 if not ast.get_docstring(node):
                     missing += 1
         return missing
@@ -107,8 +105,8 @@ def missing_docstrings(code_text: str) -> Optional[int]:
 
 def run_pyflakes_on_code(code_text: str) -> List[str]:
     """
-    Run pyflakes on code by dumping to a temp file and calling pyflakes (if installed).
-    Return list of messages (strings). If pyflakes not found or error, return [].
+    Run pyflakes on code using a temporary file.
+    Returns list of messages, empty if pyflakes not installed or error.
     """
     if shutil.which("pyflakes") is None:
         return []
@@ -125,13 +123,35 @@ def run_pyflakes_on_code(code_text: str) -> List[str]:
     except subprocess.CalledProcessError as e:
         return e.output.splitlines() if e.output else []
     except Exception as exc:
-        logger.debug("pyflakes run failed: %s", exc)
+        logger.debug("Pyflakes run failed: %s", exc)
         return []
 
 
+def detect_secrets(code_text: str) -> List[str]:
+    """Return list of detected secret keywords found in code_text."""
+    return [k for k in SECRET_KEYWORDS if k in code_text]
+
+
+def apply_penalty(issue_type: str, count: int = 1) -> int:
+    """Compute penalty capped at MAX_PENALTY_PER_ISSUE."""
+    factor = {
+        "todo": PENALTY_TODO,
+        "complexity": PENALTY_COMPLEXITY,
+        "docstring": PENALTY_DOCSTRING,
+        "pyflakes": PENALTY_PYFLAKES,
+        "print": PENALTY_PRINT,
+        "secret": MAX_PENALTY_PER_ISSUE.get("secret", 25),
+        "large_addition": MAX_PENALTY_PER_ISSUE.get("large_addition", 5),
+    }.get(issue_type, 0)
+    return min(factor * count, MAX_PENALTY_PER_ISSUE.get(issue_type, factor))
+
+
+# ---------------------------
+# Main analyzer
+# ---------------------------
 def analyze_pr(pr_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    For each file in pr_data, analyze the added code and return a summary.
+    Analyze each file in pr_data and return summary with issues and final score.
     """
     results: Dict[str, Any] = {"files": []}
     total_score = 100
@@ -149,9 +169,9 @@ def analyze_pr(pr_data: Dict[str, Any]) -> Dict[str, Any]:
             file_res["issues"].append(
                 {"type": "todo", "detail": f"{todos} TODO/FIXME found"}
             )
-            score_penalty += min(PENALTY_TODO * todos, MAX_PENALTY_PER_ISSUE["todo"])
+            score_penalty += apply_penalty("todo", todos)
 
-        # If python file, perform python-specific checks
+        # Python-specific checks
         if fname and fname.endswith(".py"):
             cc = python_complexity_from_code(added)
             if cc:
@@ -163,10 +183,7 @@ def analyze_pr(pr_data: Dict[str, Any]) -> Dict[str, Any]:
                             "detail": f"avg complexity {cc['avg']:.1f}, high count {cc['high_count']}",
                         }
                     )
-                    score_penalty += min(
-                        int(cc["avg"]) * PENALTY_COMPLEXITY,
-                        MAX_PENALTY_PER_ISSUE["complexity"],
-                    )
+                    score_penalty += apply_penalty("complexity", int(cc["avg"]))
 
             missing = missing_docstrings(added)
             if isinstance(missing, int) and missing > 0:
@@ -176,34 +193,27 @@ def analyze_pr(pr_data: Dict[str, Any]) -> Dict[str, Any]:
                         "detail": f"{missing} missing docstrings/stubs",
                     }
                 )
-                score_penalty += min(
-                    missing * PENALTY_DOCSTRING, MAX_PENALTY_PER_ISSUE["docstring"]
-                )
+                score_penalty += apply_penalty("docstring", missing)
 
             if uses_print_for_logging(added):
                 file_res["issues"].append(
                     {
-                        "type": "logging",
+                        "type": "print",
                         "detail": "uses print() for logging; prefer logging module",
                     }
                 )
-                score_penalty += PENALTY_PRINT
+                score_penalty += apply_penalty("print")
 
             pyflakes_msgs = run_pyflakes_on_code(added)
             if pyflakes_msgs:
                 file_res["issues"].append(
-                    {
-                        "type": "pyflakes",
-                        "detail": f"{len(pyflakes_msgs)} pyflakes warnings",
-                    }
+                    {"type": "pyflakes", "detail": f"{len(pyflakes_msgs)} pyflakes warnings"}
                 )
                 file_res["metrics"]["pyflakes_messages"] = pyflakes_msgs
-                score_penalty += min(
-                    len(pyflakes_msgs) * PENALTY_PYFLAKES,
-                    MAX_PENALTY_PER_ISSUE["pyflakes"],
-                )
+                score_penalty += apply_penalty("pyflakes", len(pyflakes_msgs))
+
         else:
-            # Generic checks for other languages: long lines, secrets
+            # Generic checks for other languages
             if len(added) > 2000:
                 file_res["issues"].append(
                     {
@@ -211,13 +221,14 @@ def analyze_pr(pr_data: Dict[str, Any]) -> Dict[str, Any]:
                         "detail": "Large addition — consider splitting",
                     }
                 )
-                score_penalty += MAX_PENALTY_PER_ISSUE["large_addition"]
-            # naive secret check
-            if "PRIVATE_KEY" in added or "API_KEY" in added:
+                score_penalty += apply_penalty("large_addition")
+
+            secrets_found = detect_secrets(added)
+            if secrets_found:
                 file_res["issues"].append(
-                    {"type": "secret", "detail": "Possible secret/API key in diff"}
+                    {"type": "secret", "detail": f"Possible secrets found: {', '.join(secrets_found)}"}
                 )
-                score_penalty += MAX_PENALTY_PER_ISSUE["secret"]
+                score_penalty += apply_penalty("secret")
 
         results["files"].append(file_res)
 
