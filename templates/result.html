@@ -5,49 +5,48 @@
     <title>PR Review Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        pre {
-            background-color: #f8f9fa;
-            padding: 10px;
-            border-radius: 5px;
-            overflow-x: auto;
-        }
+        pre { background-color: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; }
         .additions { color: green; font-weight: bold; }
         .deletions { color: red; font-weight: bold; }
-        .score-bar {
-            height: 25px;
-            font-weight: bold;
-        }
+        .score-bar { height: 25px; font-weight: bold; }
     </style>
 </head>
 <body>
 <div class="container my-5">
-    <h1 class="mb-4">PR Review — {{ pr_data.repo_name }} #{{ pr_data.number }}</h1>
+    <h1 class="mb-4">PR Review — {{ pr_data.repo_name }} #{{ pr_data.pr_number }}</h1>
     <h4>{{ pr_data.title }}</h4>
 
     <div class="my-3">
-        <strong>Score:</strong> {{ pr_data.score or 'N/A' }} / 100
-        {% if pr_data.score is not none %}
+        <strong>Score:</strong> {{ analysis.final_score }} / 100
         <div class="progress mt-2">
-            <div class="progress-bar" role="progressbar" style="width: {{ pr_data.score }}%;" aria-valuenow="{{ pr_data.score }}" aria-valuemin="0" aria-valuemax="100">
-                {{ pr_data.score }}%
+            <div class="progress-bar" role="progressbar" style="width: {{ analysis.final_score }}%;" aria-valuenow="{{ analysis.final_score }}" aria-valuemin="0" aria-valuemax="100">
+                {{ analysis.final_score }}%
             </div>
         </div>
-        {% endif %}
     </div>
 
     <div class="mt-4">
         <h3>File Analysis:</h3>
-        {% for file in pr_data.files %}
+        {% for file in analysis.files %}
         <div class="card mb-3">
             <div class="card-header">
                 <strong>{{ file.filename }}</strong>
                 &nbsp; — <span class="additions">+{{ file.additions }}</span> / <span class="deletions">-{{ file.deletions }}</span>
             </div>
             <div class="card-body">
-                <button class="btn btn-sm btn-outline-primary mb-2" type="button" data-bs-toggle="collapse" data-bs-target="#patch{{ loop.index }}" aria-expanded="false" aria-controls="patch{{ loop.index }}">
+                {% if file.issues %}
+                    <ul>
+                        {% for issue in file.issues %}
+                        <li>{{ issue.type }} — {{ issue.detail }}</li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p>No issues found.</p>
+                {% endif %}
+                <button class="btn btn-sm btn-outline-primary mt-2" type="button" data-bs-toggle="collapse" data-bs-target="#patch{{ loop.index }}" aria-expanded="false" aria-controls="patch{{ loop.index }}">
                     Show Patch
                 </button>
-                <div class="collapse" id="patch{{ loop.index }}">
+                <div class="collapse mt-2" id="patch{{ loop.index }}">
                     <pre>{{ file.patch }}</pre>
                 </div>
             </div>
@@ -57,7 +56,6 @@
 
     <a href="/" class="btn btn-secondary mt-3">Analyze another PR</a>
 </div>
-
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
