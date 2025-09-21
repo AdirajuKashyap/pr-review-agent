@@ -12,14 +12,16 @@ def index():
 def review():
     pr_url = request.form.get('pr_url', '').strip()
     if not pr_url:
-        return "Please provide a PR URL", 400
+        return "No PR URL provided", 400
 
     try:
         pr_data = fetch_github_pr(pr_url)
         analysis = analyze_pr(pr_data)
         return render_template('result.html', pr_data=pr_data, analysis=analysis)
     except Exception as e:
-        return f"Error fetching PR: {e}", 500
+        return f"Error: {str(e)}", 500
 
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=10000, debug=True)
+if __name__ == '__main__':
+    import os
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port, debug=True)
