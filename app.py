@@ -1,8 +1,13 @@
 from flask import Flask, request, jsonify
 from pr_fetcher import fetch_github_pr
 from github import GithubException
+import os
 
 app = Flask(__name__)
+
+@app.route("/")
+def index():
+    return "PR Review Agent is live! Use /review to POST a PR URL."
 
 @app.route("/review", methods=["POST"])
 def review():
@@ -19,3 +24,8 @@ def review():
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
     return jsonify(pr_data)
+
+if __name__ == "__main__":
+    # Use Render-assigned PORT, default to 10000
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
